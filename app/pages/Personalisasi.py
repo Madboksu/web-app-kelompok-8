@@ -29,7 +29,7 @@ st.set_page_config(
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-DATA_PATH = BASE_DIR / "40000_yt_videos.csv"
+DATA_PATH = BASE_DIR / "app" / "40000_yt_videos.csv"
 
 MODEL_PATH = (
     BASE_DIR
