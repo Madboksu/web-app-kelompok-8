@@ -27,22 +27,26 @@ st.set_page_config(
 # parents[1] = app
 # parents[2] = repository
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 DATA_PATH = BASE_DIR / "40000_yt_videos.csv"
 
 MODEL_PATH = (
     BASE_DIR
-    / "app"
     / "models"
     / "youtube_engagement_pipeline.joblib"
 )
 
 METADATA_PATH = (
     BASE_DIR
-    / "app"
     / "models"
     / "metadata.joblib"
+)
+
+MODEL_PATH = (
+    BASE_DIR
+    / "models"
+    / "youtube_engagement_pipeline.joblib"
 )
 
 

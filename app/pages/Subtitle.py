@@ -1,14 +1,13 @@
 import streamlit as st
+import whisper
 import tempfile
 import os
-
 from pathlib import Path
-from faster_whisper import WhisperModel
 
 
-# ============================================================
+# =========================================================
 # CONFIG
-# ============================================================
+# =========================================================
 
 st.set_page_config(
     page_title="AI Subtitle Generator",
@@ -17,39 +16,24 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# LOAD WHISPER MODEL
-# ============================================================
+# =========================================================
+# LOAD WHISPER
+# =========================================================
 
 @st.cache_resource
-def load_model():
-
-    model = WhisperModel(
-        "base",
-        device="cpu",
-        compute_type="int8"
-    )
-
-    return model
+def load_model(model_size):
+    return whisper.load_model(model_size)
 
 
-# ============================================================
-# HELPER - FORMAT WAKTU SRT
-# ============================================================
+# =========================================================
+# FORMAT TIMESTAMP
+# =========================================================
 
 def format_timestamp(seconds):
-
     hours = int(seconds // 3600)
-
-    minutes = int(
-        (seconds % 3600) // 60
-    )
-
+    minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-
-    milliseconds = int(
-        (seconds - int(seconds)) * 1000
-    )
+    milliseconds = int((seconds - int(seconds)) * 1000)
 
     return (
         f"{hours:02d}:"
@@ -59,28 +43,19 @@ def format_timestamp(seconds):
     )
 
 
-# ============================================================
+# =========================================================
 # CREATE SRT
-# ============================================================
+# =========================================================
 
 def create_srt(segments):
 
     srt_text = ""
 
-    for i, segment in enumerate(
-        segments,
-        start=1
-    ):
+    for i, segment in enumerate(segments, start=1):
 
-        start = format_timestamp(
-            segment.start
-        )
-
-        end = format_timestamp(
-            segment.end
-        )
-
-        text = segment.text.strip()
+        start = format_timestamp(segment["start"])
+        end = format_timestamp(segment["end"])
+        text = segment["text"].strip()
 
         srt_text += (
             f"{i}\n"
@@ -91,38 +66,37 @@ def create_srt(segments):
     return srt_text
 
 
-# ============================================================
+# =========================================================
 # CREATE TXT
-# ============================================================
+# =========================================================
 
 def create_txt(segments):
 
     text = ""
 
     for segment in segments:
-
-        text += segment.text.strip() + " "
+        text += segment["text"].strip() + " "
 
     return text.strip()
 
 
-# ============================================================
+# =========================================================
 # HEADER
-# ============================================================
+# =========================================================
 
 st.title("🎬 AI Subtitle Generator")
 
 st.write(
     """
     Upload video atau audio dan biarkan AI membuat subtitle
-    secara otomatis menggunakan **Whisper Speech Recognition**.
+    secara otomatis menggunakan **OpenAI Whisper Speech Recognition**.
     """
 )
 
 
-# ============================================================
+# =========================================================
 # SIDEBAR
-# ============================================================
+# =========================================================
 
 st.sidebar.header("⚙️ Subtitle Settings")
 
@@ -145,7 +119,7 @@ model_size = st.sidebar.selectbox(
 
 st.sidebar.info(
     """
-    **Model:** Faster-Whisper
+    **Model:** OpenAI Whisper
 
     Model digunakan untuk mengubah
     suara dalam video/audio menjadi teks
@@ -154,9 +128,9 @@ st.sidebar.info(
 )
 
 
-# ============================================================
+# =========================================================
 # UPLOAD
-# ============================================================
+# =========================================================
 
 uploaded_file = st.file_uploader(
     "Upload Video / Audio",
@@ -173,22 +147,20 @@ uploaded_file = st.file_uploader(
 )
 
 
-# ============================================================
+# =========================================================
 # PROCESS
-# ============================================================
+# =========================================================
 
 if uploaded_file is not None:
 
     st.success(
-        f"File berhasil diupload: "
-        f"**{uploaded_file.name}**"
+        f"File berhasil diupload: **{uploaded_file.name}**"
     )
 
-    # Informasi file
+    # File information
     col1, col2 = st.columns(2)
 
     with col1:
-
         st.metric(
             "Nama File",
             uploaded_file.name
@@ -197,8 +169,7 @@ if uploaded_file is not None:
     with col2:
 
         file_size_mb = (
-            uploaded_file.size
-            / (1024 * 1024)
+            uploaded_file.size / (1024 * 1024)
         )
 
         st.metric(
@@ -206,117 +177,118 @@ if uploaded_file is not None:
             f"{file_size_mb:.2f} MB"
         )
 
-
-    # Preview video
+    # Video preview
     if uploaded_file.type.startswith("video"):
 
-        st.video(
-            uploaded_file
-        )
-
+        st.video(uploaded_file)
 
     st.divider()
 
 
-    # ========================================================
+    # =====================================================
     # BUTTON
-    # ========================================================
+    # =====================================================
 
     if st.button(
         "🎯 Generate Subtitle",
-        use_container_width=True
+        use_container_width=True,
+        type="primary"
     ):
 
-        # Simpan file sementara
         suffix = Path(
             uploaded_file.name
         ).suffix
 
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix
-        ) as temp_file:
-
-            temp_file.write(
-                uploaded_file.read()
-            )
-
-            temp_path = temp_file.name
-
+        temp_path = None
 
         try:
 
-            # ==================================================
-            # LOAD MODEL
-            # ==================================================
+            # =============================================
+            # SAVE TEMPORARY FILE
+            # =============================================
 
-            with st.spinner(
-                "Memuat AI Whisper..."
-            ):
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix
+            ) as temp_file:
 
-                model = WhisperModel(
-                    model_size,
-                    device="cpu",
-                    compute_type="int8"
+                temp_file.write(
+                    uploaded_file.read()
                 )
 
+                temp_path = temp_file.name
 
-            # ==================================================
+
+            # =============================================
             # LANGUAGE
-            # ==================================================
+            # =============================================
 
             if language_option == "Auto Detect":
-
                 language = None
 
             elif language_option == "Indonesian":
-
                 language = "id"
 
             else:
-
                 language = "en"
 
 
-            # ==================================================
-            # TRANSCRIBE
-            # ==================================================
+            # =============================================
+            # LOAD WHISPER
+            # =============================================
 
             with st.spinner(
-                "🎙️ AI sedang mentranskripsi audio..."
+                "🤖 Memuat model Whisper..."
             ):
 
-                segments, info = model.transcribe(
+                model = load_model(model_size)
+
+
+            # =============================================
+            # TRANSCRIPTION
+            # =============================================
+
+            with st.spinner(
+                "🎙️ AI sedang membuat subtitle..."
+            ):
+
+                result = model.transcribe(
                     temp_path,
                     language=language,
-                    beam_size=5
+                    verbose=False
                 )
 
-                segments = list(segments)
+
+            segments = result["segments"]
 
 
-            # ==================================================
+            # =============================================
             # RESULT
-            # ==================================================
+            # =============================================
 
             st.success(
                 "✅ Subtitle berhasil dibuat!"
             )
 
 
-            # ==================================================
+            # =============================================
             # DETECTED LANGUAGE
-            # ==================================================
+            # =============================================
+
+            detected_language = result.get(
+                "language",
+                "unknown"
+            )
 
             st.info(
                 f"Bahasa terdeteksi: "
-                f"**{info.language}**"
+                f"**{detected_language}**"
             )
 
 
-            # ==================================================
+            # =============================================
             # CREATE FILES
-            # ==================================================
+            # =============================================
 
             srt_text = create_srt(
                 segments
@@ -327,9 +299,9 @@ if uploaded_file is not None:
             )
 
 
-            # ==================================================
-            # PREVIEW
-            # ==================================================
+            # =============================================
+            # TRANSCRIPT
+            # =============================================
 
             st.subheader(
                 "📝 Hasil Transkripsi"
@@ -342,9 +314,9 @@ if uploaded_file is not None:
             )
 
 
-            # ==================================================
-            # SUBTITLE TIMELINE
-            # ==================================================
+            # =============================================
+            # TIMELINE
+            # =============================================
 
             st.subheader(
                 "⏱️ Subtitle Timeline"
@@ -356,34 +328,33 @@ if uploaded_file is not None:
             ):
 
                 start = format_timestamp(
-                    segment.start
+                    segment["start"]
                 )
 
                 end = format_timestamp(
-                    segment.end
+                    segment["end"]
                 )
 
                 st.markdown(
                     f"""
                     **{i}. {start} → {end}**
 
-                    {segment.text.strip()}
+                    {segment["text"].strip()}
                     """
                 )
 
                 st.divider()
 
 
-            # ==================================================
+            # =============================================
             # DOWNLOAD
-            # ==================================================
+            # =============================================
 
             st.subheader(
                 "⬇️ Download Subtitle"
             )
 
             col1, col2 = st.columns(2)
-
 
             with col1:
 
@@ -394,7 +365,6 @@ if uploaded_file is not None:
                     mime="text/plain",
                     use_container_width=True
                 )
-
 
             with col2:
 
@@ -410,25 +380,24 @@ if uploaded_file is not None:
         except Exception as e:
 
             st.error(
-                "Terjadi error saat membuat subtitle."
+                "❌ Terjadi error saat membuat subtitle."
             )
 
-            st.code(
-                str(e)
-            )
+            st.code(str(e))
 
 
         finally:
 
-            # Hapus temporary file
-            if os.path.exists(temp_path):
-
+            if (
+                temp_path is not None
+                and os.path.exists(temp_path)
+            ):
                 os.remove(temp_path)
 
 
-# ============================================================
+# =========================================================
 # INFORMATION
-# ============================================================
+# =========================================================
 
 else:
 
@@ -437,14 +406,15 @@ else:
         👆 Upload file video atau audio untuk memulai.
 
         **Format yang didukung:**
+
         MP4, MKV, MOV, AVI, MP3, WAV, M4A, dan WEBM.
         """
     )
 
 
-# ============================================================
+# =========================================================
 # HOW IT WORKS
-# ============================================================
+# =========================================================
 
 with st.expander(
     "ℹ️ Bagaimana AI Subtitle bekerja?"
@@ -456,26 +426,22 @@ with st.expander(
 
         Pengguna mengupload video atau audio.
 
-        ### 2. Audio Processing
+        ### 2. Speech Recognition
 
-        Sistem mengambil audio dari file yang diberikan.
+        **OpenAI Whisper** mengenali suara
+        dan mengubahnya menjadi teks.
 
-        ### 3. Speech Recognition
-
-        **Faster-Whisper** digunakan untuk mengenali
-        suara dan mengubahnya menjadi teks.
-
-        ### 4. Timestamp
+        ### 3. Timestamp
 
         Setiap bagian teks diberikan timestamp
         berdasarkan waktu audio.
 
-        ### 5. Subtitle
+        ### 4. Subtitle
 
         Sistem menggabungkan teks dan timestamp
         menjadi format **SRT**.
 
-        ### 6. Download
+        ### 5. Download
 
         Pengguna dapat mengunduh hasil subtitle
         dalam format `.srt` atau transcript `.txt`.
@@ -483,13 +449,13 @@ with st.expander(
     )
 
 
-# ============================================================
+# =========================================================
 # FOOTER
-# ============================================================
+# =========================================================
 
 st.markdown("---")
 
 st.caption(
     "🎬 AI Subtitle Generator | "
-    "Powered by Faster-Whisper"
+    "Powered by OpenAI Whisper"
 )
