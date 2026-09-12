@@ -114,41 +114,48 @@ def recommend_videos(
     category_filter="Semua Kategori"
 ):
 
-    # Ubah query user menjadi TF-IDF
-    query_vector = vectorizer.transform(
-        [query]
-    )
+    # Filter kategori terlebih dahulu
+    if category_filter != "Semua Kategori":
+
+        valid_indices = df.index[
+            df["category_name"] == category_filter
+        ]
+
+        if len(valid_indices) == 0:
+            return pd.DataFrame()
+
+        candidate_matrix = matrix[valid_indices]
+        candidate_df = df.loc[valid_indices].copy()
+
+    else:
+
+        candidate_matrix = matrix
+        candidate_df = df.copy()
+
+
+    # Ubah query menjadi TF-IDF
+    query_vector = vectorizer.transform([query])
+
 
     # Hitung cosine similarity
     similarity = cosine_similarity(
         query_vector,
-        matrix
+        candidate_matrix
     ).flatten()
 
-    # Ambil kandidat terbaik
-    top_indices = np.argsort(
-        similarity
-    )[::-1][:500]
 
-    results = df.iloc[
-        top_indices
-    ].copy()
+    # Simpan similarity
+    candidate_df["similarity"] = similarity
 
-    results["similarity"] = similarity[
-        top_indices
-    ]
 
-    # Filter kategori
-    if category_filter != "Semua Kategori":
-
-        results = results[
-            results["category_name"]
-            == category_filter
-        ]
-
-    return results.head(
-        n_results
+    # Urutkan dari paling relevan
+    results = candidate_df.sort_values(
+        "similarity",
+        ascending=False
     )
+
+
+    return results.head(n_results)
 
 
 # =========================================================

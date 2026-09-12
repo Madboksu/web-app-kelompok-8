@@ -29,7 +29,7 @@ st.set_page_config(
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-DATA_PATH = BASE_DIR / "app" / "40000_yt_videos.csv"
+DATA_PATH = BASE_DIR / "40000_yt_videos.csv"
 
 MODEL_PATH = (
     BASE_DIR
@@ -42,13 +42,6 @@ METADATA_PATH = (
     / "models"
     / "metadata.joblib"
 )
-
-MODEL_PATH = (
-    BASE_DIR
-    / "models"
-    / "youtube_engagement_pipeline.joblib"
-)
-
 
 # =========================================================
 # CATEGORY

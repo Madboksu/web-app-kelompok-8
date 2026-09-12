@@ -1,18 +1,20 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="Media & Konten",
+    page_title="AI Media & Konten",
     page_icon="📱",
     layout="wide"
 )
 
-st.title("📱 Media & Konten")
+st.title("📱 AI Media & Konten")
 
 st.write(
-    "Platform AI untuk rekomendasi, moderasi, "
-    "personalisasi feed, dan generasi subtitle."
+    """
+    Platform AI untuk membantu pengguna menemukan,
+    memoderasi, mempersonalisasi, dan mengolah konten media.
+    """
 )
 
 st.info(
-    "Pilih fitur yang tersedia pada menu di sebelah kiri."
+    "Pilih fitur yang tersedia melalui menu navigasi di sebelah kiri."
 )

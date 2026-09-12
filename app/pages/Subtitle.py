@@ -17,11 +17,15 @@ st.set_page_config(
 
 
 # =========================================================
-# LOAD WHISPER
+# LOAD WHISPER MODEL
 # =========================================================
 
 @st.cache_resource
 def load_model(model_size):
+    """
+    Load Whisper model dan cache agar
+    tidak di-download/load ulang setiap rerun.
+    """
     return whisper.load_model(model_size)
 
 
@@ -30,10 +34,22 @@ def load_model(model_size):
 # =========================================================
 
 def format_timestamp(seconds):
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    milliseconds = int((seconds - int(seconds)) * 1000)
+    """
+    Mengubah detik menjadi format timestamp SRT:
+
+    HH:MM:SS,mmm
+    """
+
+    milliseconds = int(round(seconds * 1000))
+
+    hours = milliseconds // 3_600_000
+    milliseconds %= 3_600_000
+
+    minutes = milliseconds // 60_000
+    milliseconds %= 60_000
+
+    secs = milliseconds // 1_000
+    milliseconds %= 1_000
 
     return (
         f"{hours:02d}:"
@@ -48,22 +64,35 @@ def format_timestamp(seconds):
 # =========================================================
 
 def create_srt(segments):
+    """
+    Membuat file subtitle format SRT
+    berdasarkan segment Whisper.
+    """
 
-    srt_text = ""
+    srt_parts = []
 
-    for i, segment in enumerate(segments, start=1):
+    for index, segment in enumerate(segments, start=1):
 
-        start = format_timestamp(segment["start"])
-        end = format_timestamp(segment["end"])
-        text = segment["text"].strip()
-
-        srt_text += (
-            f"{i}\n"
-            f"{start} --> {end}\n"
-            f"{text}\n\n"
+        start = format_timestamp(
+            segment["start"]
         )
 
-    return srt_text
+        end = format_timestamp(
+            segment["end"]
+        )
+
+        text = segment["text"].strip()
+
+        if not text:
+            continue
+
+        srt_parts.append(
+            f"{index}\n"
+            f"{start} --> {end}\n"
+            f"{text}\n"
+        )
+
+    return "\n".join(srt_parts)
 
 
 # =========================================================
@@ -71,13 +100,21 @@ def create_srt(segments):
 # =========================================================
 
 def create_txt(segments):
+    """
+    Menggabungkan seluruh segment menjadi
+    transcript TXT.
+    """
 
-    text = ""
+    texts = []
 
     for segment in segments:
-        text += segment["text"].strip() + " "
 
-    return text.strip()
+        text = segment["text"].strip()
+
+        if text:
+            texts.append(text)
+
+    return " ".join(texts)
 
 
 # =========================================================
@@ -98,42 +135,49 @@ st.write(
 # SIDEBAR
 # =========================================================
 
-st.sidebar.header("⚙️ Subtitle Settings")
+with st.sidebar:
 
-language_option = st.sidebar.selectbox(
-    "Bahasa Audio",
-    [
-        "Auto Detect",
-        "Indonesian",
-        "English"
-    ]
-)
+    st.header("⚙️ Subtitle Settings")
 
-model_size = st.sidebar.selectbox(
-    "AI Model",
-    [
-        "base",
-        "small"
-    ]
-)
+    language_option = st.selectbox(
+        "Bahasa Audio",
+        [
+            "Auto Detect",
+            "Indonesian",
+            "English"
+        ]
+    )
 
-st.sidebar.info(
-    """
-    **Model:** OpenAI Whisper
+    model_size = st.selectbox(
+        "AI Model",
+        [
+            "base",
+            "small"
+        ],
+        index=0
+    )
 
-    Model digunakan untuk mengubah
-    suara dalam video/audio menjadi teks
-    secara otomatis.
-    """
-)
+    st.divider()
+
+    st.info(
+        """
+        **Model:** OpenAI Whisper
+
+        Whisper digunakan untuk mengenali suara
+        dari video/audio dan mengubahnya menjadi teks.
+
+        Model **base** direkomendasikan untuk deployment
+        karena lebih ringan dibandingkan model small.
+        """
+    )
 
 
 # =========================================================
-# UPLOAD
+# UPLOAD FILE
 # =========================================================
 
 uploaded_file = st.file_uploader(
-    "Upload Video / Audio",
+    "📁 Upload Video / Audio",
     type=[
         "mp4",
         "mkv",
@@ -143,57 +187,107 @@ uploaded_file = st.file_uploader(
         "wav",
         "m4a",
         "webm"
-    ]
+    ],
+    help="Format yang didukung: MP4, MKV, MOV, AVI, MP3, WAV, M4A, WEBM."
 )
 
 
 # =========================================================
-# PROCESS
+# INFORMATION IF NO FILE
 # =========================================================
 
-if uploaded_file is not None:
+if uploaded_file is None:
+
+    st.info(
+        """
+        👆 Upload file video atau audio untuk memulai.
+
+        **Format yang didukung:**
+
+        MP4, MKV, MOV, AVI, MP3, WAV, M4A, dan WEBM.
+        """
+    )
+
+
+# =========================================================
+# PROCESS UPLOADED FILE
+# =========================================================
+
+else:
+
+    # =====================================================
+    # FILE INFORMATION
+    # =====================================================
 
     st.success(
         f"File berhasil diupload: **{uploaded_file.name}**"
     )
 
-    # File information
+    file_size_mb = (
+        uploaded_file.size / (1024 * 1024)
+    )
+
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.metric(
-            "Nama File",
+            "📁 Nama File",
             uploaded_file.name
         )
 
     with col2:
 
-        file_size_mb = (
-            uploaded_file.size / (1024 * 1024)
-        )
-
         st.metric(
-            "Ukuran File",
+            "💾 Ukuran File",
             f"{file_size_mb:.2f} MB"
         )
 
-    # Video preview
+
+    # =====================================================
+    # FILE SIZE WARNING
+    # =====================================================
+
+    if file_size_mb > 200:
+
+        st.warning(
+            """
+            ⚠️ File cukup besar. Proses transkripsi dapat
+            membutuhkan waktu lebih lama dan resource lebih besar.
+            """
+        )
+
+
+    # =====================================================
+    # VIDEO PREVIEW
+    # =====================================================
+
     if uploaded_file.type.startswith("video"):
 
+        st.subheader("🎥 Preview Video")
+
         st.video(uploaded_file)
+
 
     st.divider()
 
 
     # =====================================================
-    # BUTTON
+    # GENERATE BUTTON
     # =====================================================
 
-    if st.button(
+    generate_button = st.button(
         "🎯 Generate Subtitle",
         use_container_width=True,
         type="primary"
-    ):
+    )
+
+
+    # =====================================================
+    # GENERATE SUBTITLE
+    # =====================================================
+
+    if generate_button:
 
         suffix = Path(
             uploaded_file.name
@@ -203,9 +297,9 @@ if uploaded_file is not None:
 
         try:
 
-            # =============================================
+            # =================================================
             # SAVE TEMPORARY FILE
-            # =============================================
+            # =================================================
 
             with tempfile.NamedTemporaryFile(
                 delete=False,
@@ -213,40 +307,45 @@ if uploaded_file is not None:
             ) as temp_file:
 
                 temp_file.write(
-                    uploaded_file.read()
+                    uploaded_file.getbuffer()
                 )
 
                 temp_path = temp_file.name
 
 
-            # =============================================
+            # =================================================
             # LANGUAGE
-            # =============================================
+            # =================================================
 
             if language_option == "Auto Detect":
+
                 language = None
 
             elif language_option == "Indonesian":
+
                 language = "id"
 
             else:
+
                 language = "en"
 
 
-            # =============================================
+            # =================================================
             # LOAD WHISPER
-            # =============================================
+            # =================================================
 
             with st.spinner(
                 "🤖 Memuat model Whisper..."
             ):
 
-                model = load_model(model_size)
+                model = load_model(
+                    model_size
+                )
 
 
-            # =============================================
+            # =================================================
             # TRANSCRIPTION
-            # =============================================
+            # =================================================
 
             with st.spinner(
                 "🎙️ AI sedang membuat subtitle..."
@@ -259,21 +358,40 @@ if uploaded_file is not None:
                 )
 
 
-            segments = result["segments"]
+            # =================================================
+            # GET SEGMENTS
+            # =================================================
+
+            segments = result.get(
+                "segments",
+                []
+            )
 
 
-            # =============================================
-            # RESULT
-            # =============================================
+            if not segments:
+
+                st.warning(
+                    """
+                    Tidak ditemukan suara atau teks
+                    yang dapat ditranskripsikan dari file.
+                    """
+                )
+
+                st.stop()
+
+
+            # =================================================
+            # SUCCESS
+            # =================================================
 
             st.success(
                 "✅ Subtitle berhasil dibuat!"
             )
 
 
-            # =============================================
+            # =================================================
             # DETECTED LANGUAGE
-            # =============================================
+            # =================================================
 
             detected_language = result.get(
                 "language",
@@ -281,14 +399,14 @@ if uploaded_file is not None:
             )
 
             st.info(
-                f"Bahasa terdeteksi: "
+                f"🌐 Bahasa terdeteksi: "
                 f"**{detected_language}**"
             )
 
 
-            # =============================================
-            # CREATE FILES
-            # =============================================
+            # =================================================
+            # CREATE OUTPUT
+            # =================================================
 
             srt_text = create_srt(
                 segments
@@ -299,9 +417,9 @@ if uploaded_file is not None:
             )
 
 
-            # =============================================
+            # =================================================
             # TRANSCRIPT
-            # =============================================
+            # =================================================
 
             st.subheader(
                 "📝 Hasil Transkripsi"
@@ -314,15 +432,15 @@ if uploaded_file is not None:
             )
 
 
-            # =============================================
+            # =================================================
             # TIMELINE
-            # =============================================
+            # =================================================
 
             st.subheader(
                 "⏱️ Subtitle Timeline"
             )
 
-            for i, segment in enumerate(
+            for index, segment in enumerate(
                 segments,
                 start=1
             ):
@@ -335,26 +453,36 @@ if uploaded_file is not None:
                     segment["end"]
                 )
 
+                text = segment["text"].strip()
+
+                if not text:
+                    continue
+
                 st.markdown(
                     f"""
-                    **{i}. {start} → {end}**
+                    **{index}. {start} → {end}**
 
-                    {segment["text"].strip()}
+                    {text}
                     """
                 )
 
                 st.divider()
 
 
-            # =============================================
+            # =================================================
             # DOWNLOAD
-            # =============================================
+            # =================================================
 
             st.subheader(
                 "⬇️ Download Subtitle"
             )
 
             col1, col2 = st.columns(2)
+
+
+            # =================================================
+            # DOWNLOAD TXT
+            # =================================================
 
             with col1:
 
@@ -366,25 +494,42 @@ if uploaded_file is not None:
                     use_container_width=True
                 )
 
+
+            # =================================================
+            # DOWNLOAD SRT
+            # =================================================
+
             with col2:
 
                 st.download_button(
                     label="🎬 Download SRT",
                     data=srt_text,
                     file_name="subtitle.srt",
-                    mime="text/plain",
+                    mime="application/x-subrip",
                     use_container_width=True
                 )
 
 
+        # =====================================================
+        # ERROR HANDLING
+        # =====================================================
+
         except Exception as e:
 
             st.error(
-                "❌ Terjadi error saat membuat subtitle."
+                """
+                ❌ Terjadi error saat membuat subtitle.
+                """
             )
 
-            st.code(str(e))
+            st.code(
+                str(e)
+            )
 
+
+        # =====================================================
+        # CLEAN TEMPORARY FILE
+        # =====================================================
 
         finally:
 
@@ -392,24 +537,16 @@ if uploaded_file is not None:
                 temp_path is not None
                 and os.path.exists(temp_path)
             ):
-                os.remove(temp_path)
 
+                try:
 
-# =========================================================
-# INFORMATION
-# =========================================================
+                    os.remove(
+                        temp_path
+                    )
 
-else:
+                except Exception:
 
-    st.info(
-        """
-        👆 Upload file video atau audio untuk memulai.
-
-        **Format yang didukung:**
-
-        MP4, MKV, MOV, AVI, MP3, WAV, M4A, dan WEBM.
-        """
-    )
+                    pass
 
 
 # =========================================================
@@ -428,8 +565,8 @@ with st.expander(
 
         ### 2. Speech Recognition
 
-        **OpenAI Whisper** mengenali suara
-        dan mengubahnya menjadi teks.
+        **OpenAI Whisper** mengenali suara dari
+        video/audio dan mengubahnya menjadi teks.
 
         ### 3. Timestamp
 
