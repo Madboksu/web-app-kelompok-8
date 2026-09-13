@@ -1,12 +1,13 @@
 import streamlit as st
-import joblib
 import pandas as pd
+import numpy as np
+import joblib
 
 from pathlib import Path
 
 
 # =========================================================
-# CONFIG
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
@@ -17,15 +18,23 @@ st.set_page_config(
 
 
 # =========================================================
-# PATH
+# TITLE
 # =========================================================
 
-# Personalisasi.py berada di:
-# repository/app/pages/Personalisasi.py
-#
-# parents[0] = pages
-# parents[1] = app
-# parents[2] = repository
+st.title("🎯 AI Personalisasi Konten")
+
+st.markdown(
+    """
+    Temukan video YouTube yang sesuai dengan preferensi kamu
+    berdasarkan **kategori, durasi, engagement, kebaruan video,
+    dan popularitas**.
+    """
+)
+
+
+# =========================================================
+# BASE DIRECTORY
+# =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -43,8 +52,9 @@ METADATA_PATH = (
     / "metadata.joblib"
 )
 
+
 # =========================================================
-# CATEGORY
+# CATEGORY MAPPING
 # =========================================================
 
 CATEGORY_NAMES = {
@@ -76,61 +86,98 @@ def load_data():
     df = pd.read_csv(DATA_PATH)
 
     # -----------------------------------------------------
-    # Convert numeric columns
+    # Pastikan kolom penting tersedia
+    # -----------------------------------------------------
+
+    required_columns = [
+        "video_id",
+        "title",
+        "category_id",
+        "views",
+        "likes",
+        "comments",
+        "duration_sec",
+        "publish_date",
+        "channel_name",
+        "subscriber_count"
+    ]
+
+    missing_columns = [
+        col
+        for col in required_columns
+        if col not in df.columns
+    ]
+
+    if missing_columns:
+
+        raise ValueError(
+            "Kolom berikut tidak ditemukan dalam dataset: "
+            + ", ".join(missing_columns)
+        )
+
+
+    # -----------------------------------------------------
+    # TEXT
+    # -----------------------------------------------------
+
+    df["title"] = df["title"].fillna("Tanpa Judul")
+
+    df["channel_name"] = (
+        df["channel_name"]
+        .fillna("Unknown Channel")
+    )
+
+
+    # -----------------------------------------------------
+    # NUMERIC
     # -----------------------------------------------------
 
     numeric_columns = [
         "category_id",
-        "duration_sec",
-        "subscriber_count",
         "views",
         "likes",
-        "comments"
+        "comments",
+        "duration_sec",
+        "subscriber_count"
     ]
 
-    for column in numeric_columns:
+    for col in numeric_columns:
 
-        if column in df.columns:
-
-            df[column] = pd.to_numeric(
-                df[column],
-                errors="coerce"
-            )
-
-
-    # -----------------------------------------------------
-    # Convert publish date
-    # -----------------------------------------------------
-
-    if "publish_date" in df.columns:
-
-        df["publish_date"] = pd.to_datetime(
-            df["publish_date"],
+        df[col] = pd.to_numeric(
+            df[col],
             errors="coerce"
         )
 
-        # Fitur waktu publikasi
-        df["publish_hour"] = (
-            df["publish_date"].dt.hour
-        )
 
-        df["publish_dayofweek"] = (
-            df["publish_date"].dt.dayofweek
-        )
+    df["views"] = df["views"].fillna(0)
 
-        df["publish_month"] = (
-            df["publish_date"].dt.month
-        )
+    df["likes"] = df["likes"].fillna(0)
 
-    else:
+    df["comments"] = df["comments"].fillna(0)
 
-        df["publish_hour"] = 0
-        df["publish_dayofweek"] = 0
-        df["publish_month"] = 0
+    df["duration_sec"] = (
+        df["duration_sec"]
+        .fillna(df["duration_sec"].median())
+    )
+
+    df["subscriber_count"] = (
+        df["subscriber_count"]
+        .fillna(df["subscriber_count"].median())
+    )
 
 
     # -----------------------------------------------------
-    # Category name
+    # DATE
+    # -----------------------------------------------------
+
+    df["publish_date"] = pd.to_datetime(
+        df["publish_date"],
+        errors="coerce"
+    )
+
+
+    # -----------------------------------------------------
+    # CATEGORY NAME
     # -----------------------------------------------------
 
     df["category_name"] = (
@@ -138,6 +185,64 @@ def load_data():
         .map(CATEGORY_NAMES)
         .fillna("Other")
     )
+
+
+    # =====================================================
+    # RECENCY SCORE
+    # =====================================================
+
+    latest_date = df["publish_date"].max()
+
+    age_days = (
+        latest_date - df["publish_date"]
+    ).dt.total_seconds() / (60 * 60 * 24)
+
+    age_days = (
+        age_days
+        .fillna(9999)
+        .clip(lower=0)
+    )
+
+
+    # Semakin baru -> semakin mendekati 1
+    #
+    # 0 hari   -> 1.00
+    # 30 hari  -> 0.50
+    # 60 hari  -> 0.33
+    # 365 hari -> sekitar 0.08
+    #
+
+    df["recency_score"] = 1 / (
+        1 + age_days / 30
+    )
+
+
+    # =====================================================
+    # POPULARITY SCORE
+    # =====================================================
+
+    # Menggunakan log agar video dengan miliaran views
+    # tidak terlalu mendominasi video lainnya.
+
+    log_views = np.log1p(
+        df["views"]
+    )
+
+
+    min_views = log_views.min()
+    max_views = log_views.max()
+
+
+    if max_views > min_views:
+
+        df["popularity_score"] = (
+            (log_views - min_views)
+            / (max_views - min_views)
+        )
+
+    else:
+
+        df["popularity_score"] = 0.0
 
 
     return df
@@ -156,15 +261,13 @@ def load_model():
 
     try:
 
-        return joblib.load(
+        model = joblib.load(
             MODEL_PATH
         )
 
-    except Exception as e:
+        return model
 
-        st.error(
-            f"Model gagal dimuat: {e}"
-        )
+    except Exception:
 
         return None
 
@@ -182,9 +285,11 @@ def load_metadata():
 
     try:
 
-        return joblib.load(
+        metadata = joblib.load(
             METADATA_PATH
         )
+
+        return metadata
 
     except Exception:
 
@@ -192,7 +297,7 @@ def load_metadata():
 
 
 # =========================================================
-# LOAD
+# INITIALIZE
 # =========================================================
 
 try:
@@ -202,7 +307,7 @@ try:
 except Exception as e:
 
     st.error(
-        f"Dataset gagal dimuat: {e}"
+        f"❌ Gagal membaca dataset: {e}"
     )
 
     st.stop()
@@ -214,66 +319,40 @@ metadata = load_metadata()
 
 
 # =========================================================
-# HEADER
-# =========================================================
-
-st.title("🎯 AI Personalisasi Konten")
-
-st.write(
-    """
-    Temukan konten YouTube yang lebih sesuai dengan
-    preferensi kamu. Sistem akan menyaring video berdasarkan
-    kategori dan durasi, kemudian menggunakan model Machine
-    Learning untuk memperkirakan potensi engagement.
-    """
-)
-
-
-# =========================================================
-# CHECK MODEL
-# =========================================================
-
-if model is None:
-
-    st.error(
-        """
-        Model Personalisasi tidak ditemukan.
-
-        Pastikan file berikut tersedia:
-
-        `app/models/youtube_engagement_pipeline.joblib`
-        """
-    )
-
-    st.stop()
-
-
-# =========================================================
 # SIDEBAR
 # =========================================================
 
 with st.sidebar:
 
-    st.header("🤖 Informasi Model")
+    st.header("⚙️ Pengaturan")
 
-    st.write(
-        "**Model:** Random Forest"
-    )
+    st.subheader("🤖 Informasi Model")
 
-    st.write(
-        "**Target:** High Engagement"
-    )
+    if model is not None:
+
+        st.success(
+            "Model berhasil dimuat"
+        )
+
+    else:
+
+        st.warning(
+            "Model belum tersedia"
+        )
+
+
+    # -----------------------------------------------------
+    # METADATA MODEL
+    # -----------------------------------------------------
 
     if metadata is not None:
 
         accuracy = metadata.get(
-            "accuracy",
-            None
+            "accuracy"
         )
 
-        auc = metadata.get(
-            "auc",
-            None
+        roc_auc = metadata.get(
+            "roc_auc"
         )
 
         if accuracy is not None:
@@ -283,28 +362,54 @@ with st.sidebar:
                 f"{accuracy:.2%}"
             )
 
-        if auc is not None:
+        if roc_auc is not None:
 
             st.metric(
                 "ROC-AUC",
-                f"{auc:.2%}"
+                f"{roc_auc:.2%}"
             )
+
 
     st.divider()
 
-    st.header("💡 Cara Kerja")
 
-    st.caption(
+    st.subheader("📊 Sistem Ranking")
+
+    st.markdown(
         """
-        1. Pilih kategori.
-        
-        2. Tentukan durasi maksimal.
-        
-        3. Sistem menyaring video.
-        
-        4. Model memprediksi potensi engagement.
-        
-        5. Video diurutkan berdasarkan probabilitas.
+        **50% Engagement**
+
+        Prediksi probabilitas video
+        memiliki engagement tinggi.
+
+        **25% Kebaruan**
+
+        Video yang lebih baru mendapatkan
+        skor lebih tinggi.
+
+        **25% Popularitas**
+
+        Video dengan views lebih tinggi
+        mendapatkan skor lebih tinggi.
+        """
+    )
+
+
+    st.divider()
+
+
+    st.subheader("ℹ️ Cara Kerja")
+
+    st.markdown(
+        """
+        1. Pilih kategori video.
+        2. Tentukan durasi maksimum.
+        3. Sistem memprediksi engagement.
+        4. Sistem menghitung skor kebaruan.
+        5. Sistem menghitung skor popularitas.
+        6. Semua skor digabungkan.
+        7. Video dengan skor tertinggi
+           ditampilkan terlebih dahulu.
         """
     )
 
@@ -313,14 +418,14 @@ with st.sidebar:
 # USER PREFERENCES
 # =========================================================
 
-st.subheader("⚙️ Atur Preferensi Kamu")
+st.subheader("🎯 Atur Preferensi Kamu")
 
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 
 # =========================================================
-# CATEGORY SELECTBOX
+# CATEGORY
 # =========================================================
 
 with col1:
@@ -334,120 +439,152 @@ with col1:
         .tolist()
     )
 
-    category_filter = st.selectbox(
-        "🏷️ Kategori Konten",
+    selected_category = st.selectbox(
+        "🏷️ Kategori",
         category_options
     )
 
 
 # =========================================================
-# DURATION SLIDER
+# MAX DURATION
 # =========================================================
 
 with col2:
 
-    max_duration = st.slider(
-        "⏱️ Durasi Maksimal Video",
+    max_duration_minutes = st.slider(
+        "⏱️ Durasi Maksimum",
         min_value=1,
         max_value=60,
         value=15,
         step=1
     )
 
-    st.caption(
-        f"Video dengan durasi maksimal {max_duration} menit"
+
+# =========================================================
+# NUMBER RESULTS
+# =========================================================
+
+with col3:
+
+    n_results = st.selectbox(
+        "📋 Jumlah Rekomendasi",
+        [5, 10, 15, 20],
+        index=1
     )
-
-
-# =========================================================
-# NUMBER OF RESULTS
-# =========================================================
-
-n_results = st.selectbox(
-    "📋 Jumlah konten yang ditampilkan",
-    [5, 10, 15, 20],
-    index=1
-)
-
-
-# =========================================================
-# ENGAGEMENT PRIORITY
-# =========================================================
-
-engagement_priority = st.slider(
-    "🔥 Prioritas Engagement",
-    min_value=0,
-    max_value=100,
-    value=70,
-    step=10
-)
-
-st.caption(
-    f"""
-    Prioritas engagement: **{engagement_priority}%**
-    
-    Semakin tinggi nilainya, semakin sistem
-    memprioritaskan video dengan probabilitas
-    engagement tinggi.
-    """
-)
 
 
 # =========================================================
 # BUTTON
 # =========================================================
 
-personalize_button = st.button(
-    "✨ Personalisasikan Konten",
+generate_button = st.button(
+    "🚀 Tampilkan Rekomendasi",
     type="primary",
     use_container_width=True
 )
 
 
 # =========================================================
-# PERSONALIZATION
+# GENERATE RECOMMENDATION
 # =========================================================
 
-if personalize_button:
+if generate_button:
 
-    # -----------------------------------------------------
-    # COPY DATA
-    # -----------------------------------------------------
-
-    results = df.copy()
-
-
-    # -----------------------------------------------------
+    # =====================================================
     # FILTER CATEGORY
-    # -----------------------------------------------------
+    # =====================================================
 
-    if category_filter != "Semua Kategori":
+    filtered_df = df.copy()
 
-        results = results[
-            results["category_name"]
-            == category_filter
+
+    if selected_category != "Semua Kategori":
+
+        filtered_df = filtered_df[
+            filtered_df["category_name"]
+            == selected_category
         ]
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # FILTER DURATION
-    # -----------------------------------------------------
+    # =====================================================
 
     max_duration_sec = (
-        max_duration * 60
+        max_duration_minutes * 60
     )
 
-    results = results[
-        results["duration_sec"]
+    filtered_df = filtered_df[
+        filtered_df["duration_sec"]
         <= max_duration_sec
     ]
 
 
-    # -----------------------------------------------------
-    # FEATURES
-    # -----------------------------------------------------
+    # =====================================================
+    # CHECK DATA
+    # =====================================================
 
-    model_features = [
+    if len(filtered_df) == 0:
+
+        st.warning(
+            "⚠️ Tidak ada video yang sesuai "
+            "dengan filter yang dipilih."
+        )
+
+        st.stop()
+
+
+    # =====================================================
+    # MODEL PREDICTION
+    # =====================================================
+
+    if model is None:
+
+        st.error(
+            """
+            ❌ Model tidak ditemukan.
+
+            Pastikan file berikut tersedia:
+
+            `app/models/youtube_engagement_pipeline.joblib`
+            """
+        )
+
+        st.stop()
+
+
+    # =====================================================
+    # FEATURE ENGINEERING
+    # =====================================================
+
+    prediction_data = filtered_df.copy()
+
+
+    prediction_data[
+        "publish_hour"
+    ] = prediction_data[
+        "publish_date"
+    ].dt.hour
+
+
+    prediction_data[
+        "publish_dayofweek"
+    ] = prediction_data[
+        "publish_date"
+    ].dt.dayofweek
+
+
+    prediction_data[
+        "publish_month"
+    ] = prediction_data[
+        "publish_date"
+    ].dt.month
+
+
+    # =====================================================
+    # MODEL FEATURES
+    # =====================================================
+
+    feature_columns = [
         "category_id",
         "duration_sec",
         "subscriber_count",
@@ -457,171 +594,141 @@ if personalize_button:
     ]
 
 
-    # -----------------------------------------------------
-    # CHECK FEATURES
-    # -----------------------------------------------------
-
-    missing_features = [
-        feature
-        for feature in model_features
-        if feature not in results.columns
+    X = prediction_data[
+        feature_columns
     ]
 
-    if missing_features:
 
-        st.error(
-            "Fitur model tidak ditemukan: "
-            + ", ".join(missing_features)
-        )
-
-        st.stop()
-
-
-    # -----------------------------------------------------
-    # REMOVE MISSING VALUES
-    # -----------------------------------------------------
-
-    results = results.dropna(
-        subset=model_features
-    )
-
-
-    # -----------------------------------------------------
-    # CHECK RESULT
-    # -----------------------------------------------------
-
-    if len(results) == 0:
-
-        st.warning(
-            """
-            Tidak ditemukan video yang sesuai
-            dengan preferensi kamu.
-
-            Coba pilih kategori lain atau
-            naikkan durasi maksimal.
-            """
-        )
-
-        st.stop()
-
-
-    # -----------------------------------------------------
-    # PREDICTION
-    # -----------------------------------------------------
-
-    X = results[
-        model_features
-    ]
-
+    # =====================================================
+    # PREDICT
+    # =====================================================
 
     try:
 
-        predictions = model.predict(X)
-
-        probabilities = (
-            model.predict_proba(X)[:, 1]
+        probabilities = model.predict_proba(
+            X
         )
+
+        # Probability class 1
+        engagement_probability = probabilities[
+            :,
+            1
+        ]
+
+        prediction_data[
+            "engagement_probability"
+        ] = engagement_probability
+
 
     except Exception as e:
 
         st.error(
-            f"""
-            Terjadi masalah saat melakukan prediksi.
-
-            Kemungkinan fitur yang digunakan saat
-            training berbeda dengan fitur aplikasi.
-
-            Detail error:
-            {e}
-            """
+            f"❌ Gagal melakukan prediksi: {e}"
         )
 
         st.stop()
 
 
-    # -----------------------------------------------------
-    # SAVE PREDICTION
-    # -----------------------------------------------------
+    # =====================================================
+    # ENGAGEMENT SCORE
+    # =====================================================
 
-    results["prediction"] = predictions
+    prediction_data[
+        "engagement_score"
+    ] = prediction_data[
+        "engagement_probability"
+    ]
 
-    results["engagement_probability"] = (
-        probabilities
+
+    # =====================================================
+    # DURATION SCORE
+    # =====================================================
+
+    # Video yang lebih pendek mendapatkan skor lebih tinggi.
+    # Tetapi durasi tetap hanya menjadi faktor kecil.
+
+    duration_ratio = (
+        prediction_data["duration_sec"]
+        / max_duration_sec
     )
 
-
-    # -----------------------------------------------------
-    # NORMALIZE DURATION SCORE
-    # -----------------------------------------------------
-
-    duration_score = (
-        1
-        -
-        (
-            results["duration_sec"]
-            /
-            max_duration_sec
-        )
-    )
-
-    duration_score = duration_score.clip(
+    prediction_data[
+        "duration_score"
+    ] = (
+        1 - duration_ratio
+    ).clip(
         lower=0,
         upper=1
     )
 
 
-    # -----------------------------------------------------
-    # ENGAGEMENT SCORE
-    # -----------------------------------------------------
+    # =====================================================
+    # RECENCY SCORE
+    # =====================================================
 
-    engagement_score = (
-        results["engagement_probability"]
+    prediction_data[
+        "recency_score"
+    ] = prediction_data[
+        "recency_score"
+    ].clip(
+        lower=0,
+        upper=1
     )
 
 
-    # -----------------------------------------------------
-    # WEIGHT
-    # -----------------------------------------------------
+    # =====================================================
+    # POPULARITY SCORE
+    # =====================================================
 
-    engagement_weight = (
-        engagement_priority / 100
+    prediction_data[
+        "popularity_score"
+    ] = prediction_data[
+        "popularity_score"
+    ].clip(
+        lower=0,
+        upper=1
     )
 
-    duration_weight = (
-        1 - engagement_weight
-    )
 
+    # =====================================================
+    # FINAL PERSONALIZATION SCORE
+    # =====================================================
 
-    # -----------------------------------------------------
-    # PERSONALIZATION SCORE
-    # -----------------------------------------------------
+    #
+    # Engagement : 50%
+    # Recency    : 25%
+    # Popularity : 25%
+    #
 
-    results["personalization_score"] = (
-        engagement_score
-        *
-        engagement_weight
+    prediction_data[
+        "personalization_score"
+    ] = (
+        prediction_data[
+            "engagement_score"
+        ] * 0.50
+
         +
-        duration_score
-        *
-        duration_weight
+
+        prediction_data[
+            "recency_score"
+        ] * 0.25
+
+        +
+
+        prediction_data[
+            "popularity_score"
+        ] * 0.25
     )
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # SORT
-    # -----------------------------------------------------
+    # =====================================================
 
-    results = results.sort_values(
+    results = prediction_data.sort_values(
         "personalization_score",
         ascending=False
-    )
-
-
-    # -----------------------------------------------------
-    # LIMIT RESULTS
-    # -----------------------------------------------------
-
-    results = results.head(
+    ).head(
         n_results
     )
 
@@ -630,63 +737,24 @@ if personalize_button:
     # RESULT SUMMARY
     # =====================================================
 
+    st.divider()
+
+    st.subheader(
+        "✨ Rekomendasi Untuk Kamu"
+    )
+
     st.success(
         f"""
-        Berhasil menemukan {len(results)}
-        konten yang sesuai dengan preferensi kamu.
+        Ditemukan {len(filtered_df):,} video
+        yang sesuai dengan filter.
+        Menampilkan {len(results)} video terbaik.
         """
     )
 
 
-    # =====================================================
-    # SUMMARY METRICS
-    # =====================================================
-
-    avg_probability = (
-        results["engagement_probability"]
-        .mean()
-    )
-
-    avg_duration = (
-        results["duration_sec"]
-        .mean()
-        / 60
-    )
-
-
-    col1, col2, col3 = st.columns(3)
-
-
-    with col1:
-
-        st.metric(
-            "🎬 Konten",
-            len(results)
-        )
-
-
-    with col2:
-
-        st.metric(
-            "🔥 Rata-rata Engagement",
-            f"{avg_probability:.1%}"
-        )
-
-
-    with col3:
-
-        st.metric(
-            "⏱️ Rata-rata Durasi",
-            f"{avg_duration:.1f} menit"
-        )
-
-
-    # =====================================================
-    # RESULT TITLE
-    # =====================================================
-
-    st.subheader(
-        "🎯 Hasil Personalisasi"
+    st.caption(
+        "Ranking menggunakan kombinasi "
+        "engagement, kebaruan, dan popularitas video."
     )
 
 
@@ -698,6 +766,10 @@ if personalize_button:
         results.iterrows(),
         start=1
     ):
+
+        # -------------------------------------------------
+        # TITLE
+        # -------------------------------------------------
 
         st.markdown(
             f"## #{rank} — {row['title']}"
@@ -720,6 +792,52 @@ if personalize_button:
 
 
         # -------------------------------------------------
+        # DATE
+        # -------------------------------------------------
+
+        if pd.notna(
+            row["publish_date"]
+        ):
+
+            st.write(
+                f"📅 **Dipublikasikan:** "
+                f"{row['publish_date'].strftime('%d %B %Y')}"
+            )
+
+
+        # -------------------------------------------------
+        # DURATION
+        # -------------------------------------------------
+
+        duration_seconds = float(
+            row["duration_sec"]
+        )
+
+        duration_minutes = (
+            int(duration_seconds)
+            // 60
+        )
+
+        duration_remaining_seconds = (
+            int(duration_seconds)
+            % 60
+        )
+
+        if duration_minutes > 0:
+
+            duration_text = (
+                f"{duration_minutes} menit "
+                f"{duration_remaining_seconds} detik"
+            )
+
+        else:
+
+            duration_text = (
+                f"{duration_remaining_seconds} detik"
+            )
+
+
+        # -------------------------------------------------
         # METRICS
         # -------------------------------------------------
 
@@ -728,107 +846,150 @@ if personalize_button:
 
         with col1:
 
-            duration_minutes = (
-                row["duration_sec"] / 60
-            )
-
-            st.metric(
-                "⏱️ Durasi",
-                f"{duration_minutes:.1f} menit"
-            )
-
-
-        with col2:
-
             st.metric(
                 "👁️ Views",
                 f"{row['views']:,.0f}"
             )
 
 
+        with col2:
+
+            st.metric(
+                "👍 Likes",
+                f"{row['likes']:,.0f}"
+            )
+
+
         with col3:
 
-            if "likes" in row:
-
-                st.metric(
-                    "👍 Likes",
-                    f"{row['likes']:,.0f}"
-                )
+            st.metric(
+                "⏱️ Durasi",
+                duration_text
+            )
 
 
         with col4:
 
-            probability = (
-                row["engagement_probability"]
+            st.metric(
+                "🎯 Engagement",
+                f"{row['engagement_probability']:.1%}"
             )
+
+
+        # -------------------------------------------------
+        # SCORE
+        # -------------------------------------------------
+
+        score_col1, score_col2, score_col3 = st.columns(3)
+
+
+        with score_col1:
 
             st.metric(
-                "🔥 Engagement",
-                f"{probability:.1%}"
+                "🔥 Engagement Score",
+                f"{row['engagement_score']:.1%}"
+            )
+
+
+        with score_col2:
+
+            st.metric(
+                "🆕 Recency Score",
+                f"{row['recency_score']:.1%}"
+            )
+
+
+        with score_col3:
+
+            st.metric(
+                "👁️ Popularity Score",
+                f"{row['popularity_score']:.1%}"
             )
 
 
         # -------------------------------------------------
-        # PROBABILITY BAR
+        # FINAL SCORE
         # -------------------------------------------------
-
-        st.write(
-            "Probabilitas High Engagement"
-        )
 
         st.progress(
             float(
-                row["engagement_probability"]
+                row["personalization_score"]
             )
+        )
+
+        st.write(
+            f"⭐ **Personalization Score:** "
+            f"{row['personalization_score']:.1%}"
         )
 
 
         # -------------------------------------------------
-        # STATUS
+        # ENGAGEMENT STATUS
         # -------------------------------------------------
 
-        if row["prediction"] == 1:
+        if row[
+            "engagement_probability"
+        ] >= 0.70:
 
             st.success(
-                "🔥 Model memprediksi potensi "
-                "engagement tinggi."
+                "🔥 Potensi engagement tinggi"
+            )
+
+        elif row[
+            "engagement_probability"
+        ] >= 0.50:
+
+            st.info(
+                "👍 Potensi engagement sedang"
             )
 
         else:
 
-            st.info(
-                "📊 Model memprediksi potensi "
-                "engagement relatif lebih rendah."
+            st.warning(
+                "📉 Potensi engagement relatif rendah"
             )
-
-
-        # -------------------------------------------------
-        # PERSONALIZATION SCORE
-        # -------------------------------------------------
-
-        st.caption(
-            f"""
-            Personalization Score:
-            **{row['personalization_score']:.3f}**
-            """
-        )
 
 
         # -------------------------------------------------
         # YOUTUBE LINK
         # -------------------------------------------------
 
-        if "video_id" in row:
+        video_url = (
+            "https://www.youtube.com/watch?v="
+            + str(row["video_id"])
+        )
 
-            video_url = (
-                "https://www.youtube.com/watch?v="
-                + str(row["video_id"])
-            )
 
-            st.link_button(
-                "▶️ Tonton di YouTube",
-                video_url,
-                use_container_width=True
+        st.link_button(
+            "▶️ Tonton di YouTube",
+            video_url,
+            use_container_width=True
+        )
+
+
+        # -------------------------------------------------
+        # EXPLANATION
+        # -------------------------------------------------
+
+        with st.expander(
+            "🔎 Lihat alasan rekomendasi"
+        ):
+
+            st.write(
+                f"""
+                **Mengapa video ini direkomendasikan?**
+
+                - 🎯 Engagement Score:
+                  **{row['engagement_score']:.1%}**
+                - 🆕 Recency Score:
+                  **{row['recency_score']:.1%}**
+                - 👁️ Popularity Score:
+                  **{row['popularity_score']:.1%}**
+
+                Video kemudian mendapatkan
+                **Personalization Score**
+                sebesar **{row['personalization_score']:.1%}**.
+                """
             )
 
 
@@ -836,71 +997,42 @@ if personalize_button:
 
 
 # =========================================================
-# HOW IT WORKS
+# FOOTER / INFORMATION
 # =========================================================
 
 with st.expander(
-    "ℹ️ Bagaimana Personalisasi bekerja?"
+    "ℹ️ Tentang Sistem Personalisasi"
 ):
 
     st.markdown(
         """
-        ### 1. Pengguna menentukan preferensi
+        ### Cara kerja
 
-        Pengguna memilih kategori konten dan
-        durasi maksimal video.
+        Sistem menggunakan model machine learning
+        untuk memprediksi kemungkinan sebuah video
+        mendapatkan engagement tinggi.
 
-        ### 2. Sistem melakukan filtering
+        Fitur yang digunakan model adalah:
 
-        Dataset YouTube kemudian disaring berdasarkan
-        preferensi tersebut.
-
-        ### 3. Model Machine Learning melakukan prediksi
-
-        Setiap video yang lolos filter dianalisis
-        menggunakan model **Random Forest**.
-
-        Model mempertimbangkan karakteristik video
-        seperti:
-
-        - Kategori video
+        - Category ID
         - Durasi video
         - Jumlah subscriber channel
         - Jam publikasi
         - Hari publikasi
         - Bulan publikasi
 
-        ### 4. Sistem menghitung probabilitas
+        Setelah probabilitas engagement diperoleh,
+        sistem melakukan **ranking tambahan** berdasarkan:
 
-        Model menghasilkan probabilitas bahwa sebuah
-        video termasuk kategori **High Engagement**.
+        **50% Engagement + 25% Kebaruan + 25% Popularitas**
 
-        ### 5. Sistem melakukan ranking
+        Skor popularitas menggunakan transformasi log
+        terhadap jumlah views sehingga perbedaan ekstrem
+        antara video dengan ribuan dan miliaran views
+        tidak terlalu mendominasi ranking.
 
-        Video kemudian diurutkan berdasarkan
-        **Personalization Score**.
-
-        Score mempertimbangkan:
-
-        - Potensi engagement
-        - Kesesuaian durasi dengan preferensi pengguna
-
-        ### 6. Hasil personalisasi
-
-        Pengguna mendapatkan daftar video yang
-        paling sesuai dengan preferensi dan
-        memiliki potensi engagement tinggi.
+        Sementara itu, skor kebaruan memberikan nilai
+        lebih tinggi kepada video yang lebih dekat dengan
+        tanggal terbaru dalam dataset.
         """
     )
-
-
-# =========================================================
-# FOOTER
-# =========================================================
-
-st.markdown("---")
-
-st.caption(
-    "🎯 AI Content Personalization | "
-    "Powered by Machine Learning"
-)

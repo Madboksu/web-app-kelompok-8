@@ -11,15 +11,25 @@ from sklearn.metrics.pairwise import cosine_similarity
 # CONFIG
 # =========================================================
 
+st.set_page_config(
+    page_title="Rekomendasi Konten",
+    page_icon="🎯",
+    layout="wide"
+)
+
 st.title("🎯 Rekomendasi Konten")
 
 st.write(
     "Temukan video YouTube yang relevan berdasarkan "
-    "judul, deskripsi, kategori, dan channel."
+    "topik, kategori, channel, kebaruan, dan popularitas."
 )
 
-BASE_DIR = Path(__file__).resolve().parent.parent
 
+# =========================================================
+# PATH
+# =========================================================
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "40000_yt_videos.csv"
 
 
@@ -55,17 +65,36 @@ def load_data():
 
     df = pd.read_csv(DATA_PATH)
 
+    # Text
     df["title"] = df["title"].fillna("")
     df["description"] = df["description"].fillna("")
     df["channel_name"] = df["channel_name"].fillna("")
 
+    # Numeric
+    df["views"] = pd.to_numeric(
+        df["views"],
+        errors="coerce"
+    ).fillna(0)
+
+    df["likes"] = pd.to_numeric(
+        df["likes"],
+        errors="coerce"
+    ).fillna(0)
+
+    # Date
+    df["publish_date"] = pd.to_datetime(
+        df["publish_date"],
+        errors="coerce"
+    )
+
+    # Category
     df["category_name"] = (
         df["category_id"]
         .map(CATEGORY_NAMES)
         .fillna("Other")
     )
 
-    # Gabungkan informasi untuk recommendation
+    # Combined text
     df["combined_text"] = (
         df["title"].astype(str)
         + " "
@@ -74,6 +103,41 @@ def load_data():
         + df["category_name"].astype(str)
         + " "
         + df["channel_name"].astype(str)
+    )
+
+    # =====================================================
+    # POPULARITY SCORE
+    # =====================================================
+
+    log_views = np.log1p(df["views"])
+
+    min_views = log_views.min()
+    max_views = log_views.max()
+
+    if max_views > min_views:
+        df["popularity_score"] = (
+            (log_views - min_views)
+            / (max_views - min_views)
+        )
+    else:
+        df["popularity_score"] = 0.0
+
+    # =====================================================
+    # RECENCY SCORE
+    # =====================================================
+
+    latest_date = df["publish_date"].max()
+
+    age_days = (
+        latest_date - df["publish_date"]
+    ).dt.total_seconds() / (60 * 60 * 24)
+
+    age_days = age_days.fillna(9999).clip(lower=0)
+
+    # Video terbaru -> mendekati 1
+    # Video lama -> mendekati 0
+    df["recency_score"] = 1 / (
+        1 + age_days / 30
     )
 
     return df
@@ -96,7 +160,9 @@ def create_tfidf(text_data):
         sublinear_tf=True
     )
 
-    matrix = vectorizer.fit_transform(text_data)
+    matrix = vectorizer.fit_transform(
+        text_data
+    )
 
     return vectorizer, matrix
 
@@ -114,7 +180,10 @@ def recommend_videos(
     category_filter="Semua Kategori"
 ):
 
-    # Filter kategori terlebih dahulu
+    # =====================================================
+    # FILTER KATEGORI DAHULU
+    # =====================================================
+
     if category_filter != "Semua Kategori":
 
         valid_indices = df.index[
@@ -125,35 +194,52 @@ def recommend_videos(
             return pd.DataFrame()
 
         candidate_matrix = matrix[valid_indices]
-        candidate_df = df.loc[valid_indices].copy()
+        candidate_df = df.loc[
+            valid_indices
+        ].copy()
 
     else:
 
         candidate_matrix = matrix
         candidate_df = df.copy()
 
+    # =====================================================
+    # QUERY
+    # =====================================================
 
-    # Ubah query menjadi TF-IDF
-    query_vector = vectorizer.transform([query])
+    query_vector = vectorizer.transform(
+        [query]
+    )
 
+    # =====================================================
+    # SIMILARITY
+    # =====================================================
 
-    # Hitung cosine similarity
     similarity = cosine_similarity(
         query_vector,
         candidate_matrix
     ).flatten()
 
-
-    # Simpan similarity
     candidate_df["similarity"] = similarity
 
+    # =====================================================
+    # FINAL SCORE
+    # =====================================================
 
-    # Urutkan dari paling relevan
-    results = candidate_df.sort_values(
-        "similarity",
-        ascending=False
+    candidate_df["recommendation_score"] = (
+        candidate_df["similarity"] * 0.60
+        + candidate_df["recency_score"] * 0.20
+        + candidate_df["popularity_score"] * 0.20
     )
 
+    # =====================================================
+    # SORT
+    # =====================================================
+
+    results = candidate_df.sort_values(
+        "recommendation_score",
+        ascending=False
+    )
 
     return results.head(n_results)
 
@@ -185,14 +271,17 @@ query = st.text_input(
 
 col1, col2 = st.columns(2)
 
+
 with col1:
 
     category_filter = st.selectbox(
         "🏷️ Kategori",
-        [
-            "Semua Kategori"
-        ] + list(
-            CATEGORY_NAMES.values()
+        ["Semua Kategori"]
+        + sorted(
+            df["category_name"]
+            .dropna()
+            .unique()
+            .tolist()
         )
     )
 
@@ -245,14 +334,22 @@ if st.button(
                 f"Ditemukan {len(results)} rekomendasi."
             )
 
-            # =============================================
-            # DISPLAY RESULT
-            # =============================================
+            st.caption(
+                "Ranking mempertimbangkan relevansi, "
+                "kebaruan video, dan jumlah views."
+            )
 
-            for _, row in results.iterrows():
+            # =================================================
+            # DISPLAY
+            # =================================================
+
+            for rank, (_, row) in enumerate(
+                results.iterrows(),
+                start=1
+            ):
 
                 st.subheader(
-                    row["title"]
+                    f"#{rank} — {row['title']}"
                 )
 
                 st.write(
@@ -265,27 +362,41 @@ if st.button(
                     f"{row['category_name']}"
                 )
 
-                c1, c2, c3 = st.columns(3)
+                if pd.notna(row["publish_date"]):
+
+                    st.write(
+                        f"📅 **Dipublikasikan:** "
+                        f"{row['publish_date'].strftime('%d %B %Y')}"
+                    )
+
+                c1, c2, c3, c4 = st.columns(4)
 
                 with c1:
 
                     st.metric(
-                        "Views",
+                        "👁️ Views",
                         f"{row['views']:,.0f}"
                     )
 
                 with c2:
 
                     st.metric(
-                        "Likes",
+                        "👍 Likes",
                         f"{row['likes']:,.0f}"
                     )
 
                 with c3:
 
                     st.metric(
-                        "Similarity",
+                        "🎯 Relevansi",
                         f"{row['similarity']:.1%}"
+                    )
+
+                with c4:
+
+                    st.metric(
+                        "⭐ Skor",
+                        f"{row['recommendation_score']:.1%}"
                     )
 
                 video_url = (
@@ -295,7 +406,8 @@ if st.button(
 
                 st.link_button(
                     "▶️ Tonton di YouTube",
-                    video_url
+                    video_url,
+                    use_container_width=True
                 )
 
                 st.divider()
