@@ -1,138 +1,157 @@
-# ============================================================
-# EDA - YouTube Videos Dataset
-# ============================================================
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from pathlib import Path
-
-
-# ============================================================
-# 1. SETUP
-# ============================================================
-
-# Lokasi file CSV
-BASE_DIR = Path(__file__).resolve().parent
-
-# File dataset
-DATA_PATH = BASE_DIR / "40000_yt_videos.csv"
-
-# Folder untuk menyimpan hasil grafik
-OUTPUT_DIR = BASE_DIR / "eda_results"
-OUTPUT_DIR.mkdir(exist_ok=True)
-
+import seaborn as sns
+import os
 
 # ============================================================
-# 2. LOAD DATA
+# 1. LOAD DATASET
 # ============================================================
+
+DATA_PATH = "40000_yt_videos.csv"
+OUTPUT_DIR = "eda_results"
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 df = pd.read_csv(DATA_PATH)
 
-print("=" * 70)
-print("EXPLORATORY DATA ANALYSIS - YOUTUBE VIDEOS")
-print("=" * 70)
+print("=" * 60)
+print("DATASET INFO")
+print("=" * 60)
 
-print(f"\nJumlah data : {df.shape[0]:,} baris")
-print(f"Jumlah kolom: {df.shape[1]} kolom")
-
-
-# ============================================================
-# 3. CATEGORY MAPPING
-# ============================================================
-
-category_mapping = {
-    1: "Film & Animation",
-    2: "Autos & Vehicles",
-    10: "Music",
-    15: "Pets & Animals",
-    17: "Sports",
-    19: "Travel & Events",
-    20: "Gaming",
-    22: "People & Blogs",
-    23: "Comedy",
-    24: "Entertainment",
-    25: "News & Politics",
-    26: "Howto & Style",
-    27: "Education",
-    28: "Science & Technology",
-    29: "Nonprofits & Activism"
-}
-
-df["category_name"] = df["category_id"].map(category_mapping)
+print("Dataset shape:", df.shape)
+print("\nColumn names:")
+print(df.columns.tolist())
 
 
 # ============================================================
-# 4. MISSING VALUES
+# 2. CEK DATA
 # ============================================================
 
-print("\n" + "=" * 70)
+print("\n" + "=" * 60)
 print("MISSING VALUES")
-print("=" * 70)
+print("=" * 60)
 
-missing = df.isnull().sum()
+print(df.isnull().sum())
 
-print(missing[missing > 0])
+print("\n" + "=" * 60)
+print("DUPLICATE ROWS")
+print("=" * 60)
 
-print("\nTotal missing values:", df.isnull().sum().sum())
-
-
-# ============================================================
-# 5. DUPLICATE
-# ============================================================
-
-print("\n" + "=" * 70)
-print("DUPLICATE CHECK")
-print("=" * 70)
-
-print("Duplicate seluruh baris :", df.duplicated().sum())
-print("Duplicate video_id      :", df["video_id"].duplicated().sum())
-print("Duplicate title         :", df["title"].duplicated().sum())
+print("Duplicate rows:", df.duplicated().sum())
 
 
 # ============================================================
-# 6. STATISTIK
+# 3. DATA CLEANING
 # ============================================================
 
-numeric_columns = [
-    "views",
-    "likes",
-    "comments",
-    "duration_sec",
-    "subscriber_count"
-]
-
-print("\n" + "=" * 70)
-print("STATISTIK NUMERIK")
-print("=" * 70)
-
-print(df[numeric_columns].describe().T)
-
-
-# ============================================================
-# 7. GRAFIK 1
-# DISTRIBUSI KATEGORI
-# ============================================================
-
-category_counts = df["category_name"].value_counts()
-
-plt.figure(figsize=(12, 7))
-
-category_counts.sort_values().plot(kind="barh")
-
-plt.title(
-    "Distribusi Video Berdasarkan Kategori",
-    fontsize=16,
-    fontweight="bold"
+df["duration_sec"] = pd.to_numeric(
+    df["duration_sec"],
+    errors="coerce"
 )
 
-plt.xlabel("Jumlah Video")
-plt.ylabel("Kategori")
+df["subscriber_count"] = pd.to_numeric(
+    df["subscriber_count"],
+    errors="coerce"
+)
+
+df["views"] = pd.to_numeric(
+    df["views"],
+    errors="coerce"
+)
+
+df["likes"] = pd.to_numeric(
+    df["likes"],
+    errors="coerce"
+)
+
+df["comments"] = pd.to_numeric(
+    df["comments"],
+    errors="coerce"
+)
+
+df["publish_date"] = pd.to_datetime(
+    df["publish_date"],
+    errors="coerce"
+)
+
+# Isi missing duration dengan median
+df["duration_sec"] = df["duration_sec"].fillna(
+    df["duration_sec"].median()
+)
+
+# Isi missing subscriber dengan median
+df["subscriber_count"] = df["subscriber_count"].fillna(
+    df["subscriber_count"].median()
+)
+
+# Hapus baris jika kolom penting masih kosong
+df = df.dropna(
+    subset=[
+        "views",
+        "likes",
+        "comments",
+        "publish_date"
+    ]
+)
+
+print("\nDataset setelah cleaning:", df.shape)
+
+
+# ============================================================
+# 4. FEATURE ENGINEERING
+# ============================================================
+
+df["publish_hour"] = df["publish_date"].dt.hour
+
+df["publish_dayofweek"] = df["publish_date"].dt.dayofweek
+
+df["publish_month"] = df["publish_date"].dt.month
+
+
+# ============================================================
+# 5. MEMBUAT TARGET HIGH ENGAGEMENT
+# ============================================================
+
+views_threshold = df["views"].median()
+
+df["high_engagement"] = (
+    df["views"] >= views_threshold
+).astype(int)
+
+print("\n" + "=" * 60)
+print("TARGET DISTRIBUTION")
+print("=" * 60)
+
+print("Median views:", views_threshold)
+
+print(
+    df["high_engagement"].value_counts()
+)
+
+
+# ============================================================
+# 6. DISTRIBUSI KATEGORI
+# ============================================================
+
+plt.figure(figsize=(10, 6))
+
+category_counts = df["category_id"].value_counts().sort_index()
+
+category_counts.plot(kind="bar")
+
+plt.title("Distribusi Video Berdasarkan Kategori")
+plt.xlabel("Category ID")
+plt.ylabel("Jumlah Video")
+plt.xticks(rotation=45)
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "01_distribusi_kategori.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "01_distribusi_kategori.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -141,30 +160,27 @@ plt.close()
 
 
 # ============================================================
-# 8. GRAFIK 2
-# DISTRIBUSI VIEWS
+# 7. DISTRIBUSI VIEWS
 # ============================================================
 
 plt.figure(figsize=(10, 6))
 
 plt.hist(
-    np.log1p(df["views"]),
+    df["views"],
     bins=50
 )
 
-plt.title(
-    "Distribusi Views Video",
-    fontsize=16,
-    fontweight="bold"
-)
-
-plt.xlabel("log(Views + 1)")
+plt.title("Distribusi Views")
+plt.xlabel("Views")
 plt.ylabel("Jumlah Video")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "02_distribusi_views.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "02_distribusi_views.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -173,30 +189,27 @@ plt.close()
 
 
 # ============================================================
-# 9. GRAFIK 3
-# DISTRIBUSI LIKES
+# 8. DISTRIBUSI LIKES
 # ============================================================
 
 plt.figure(figsize=(10, 6))
 
 plt.hist(
-    np.log1p(df["likes"]),
+    df["likes"],
     bins=50
 )
 
-plt.title(
-    "Distribusi Likes Video",
-    fontsize=16,
-    fontweight="bold"
-)
-
-plt.xlabel("log(Likes + 1)")
+plt.title("Distribusi Likes")
+plt.xlabel("Likes")
 plt.ylabel("Jumlah Video")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "03_distribusi_likes.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "03_distribusi_likes.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -205,30 +218,27 @@ plt.close()
 
 
 # ============================================================
-# 10. GRAFIK 4
-# DISTRIBUSI COMMENTS
+# 9. DISTRIBUSI COMMENTS
 # ============================================================
 
 plt.figure(figsize=(10, 6))
 
 plt.hist(
-    np.log1p(df["comments"]),
+    df["comments"],
     bins=50
 )
 
-plt.title(
-    "Distribusi Comments Video",
-    fontsize=16,
-    fontweight="bold"
-)
-
-plt.xlabel("log(Comments + 1)")
+plt.title("Distribusi Comments")
+plt.xlabel("Comments")
 plt.ylabel("Jumlah Video")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "04_distribusi_comments.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "04_distribusi_comments.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -237,8 +247,7 @@ plt.close()
 
 
 # ============================================================
-# 11. GRAFIK 5
-# DISTRIBUSI DURASI
+# 10. DISTRIBUSI DURASI
 # ============================================================
 
 plt.figure(figsize=(10, 6))
@@ -248,19 +257,17 @@ plt.hist(
     bins=50
 )
 
-plt.title(
-    "Distribusi Durasi Video",
-    fontsize=16,
-    fontweight="bold"
-)
-
+plt.title("Distribusi Durasi Video")
 plt.xlabel("Durasi (detik)")
 plt.ylabel("Jumlah Video")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "05_distribusi_durasi.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "05_distribusi_durasi.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -269,33 +276,33 @@ plt.close()
 
 
 # ============================================================
-# 12. GRAFIK 6
-# TOP 10 CHANNEL
+# 11. TOP 10 CHANNEL
 # ============================================================
+
+plt.figure(figsize=(10, 6))
 
 top_channels = (
     df["channel_name"]
     .value_counts()
     .head(10)
+    .sort_values()
 )
 
-plt.figure(figsize=(10, 6))
-
-top_channels.sort_values().plot(kind="barh")
-
-plt.title(
-    "Top 10 Channel Berdasarkan Jumlah Video",
-    fontsize=16,
-    fontweight="bold"
+top_channels.plot(
+    kind="barh"
 )
 
+plt.title("Top 10 Channel Berdasarkan Jumlah Video")
 plt.xlabel("Jumlah Video")
 plt.ylabel("Channel")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "06_top_10_channel.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "06_top_10_channel.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -304,33 +311,33 @@ plt.close()
 
 
 # ============================================================
-# 13. GRAFIK 7
-# MEDIAN VIEWS PER KATEGORI
+# 12. MEDIAN VIEWS PER CATEGORY
 # ============================================================
 
-median_views = (
-    df.groupby("category_name")["views"]
+median_views_category = (
+    df.groupby("category_id")["views"]
     .median()
-    .sort_values()
+    .sort_values(ascending=False)
 )
 
-plt.figure(figsize=(12, 7))
+plt.figure(figsize=(10, 6))
 
-median_views.plot(kind="barh")
-
-plt.title(
-    "Median Views Berdasarkan Kategori",
-    fontsize=16,
-    fontweight="bold"
+median_views_category.plot(
+    kind="bar"
 )
 
-plt.xlabel("Median Views")
-plt.ylabel("Kategori")
+plt.title("Median Views per Category")
+plt.xlabel("Category ID")
+plt.ylabel("Median Views")
+plt.xticks(rotation=45)
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "07_median_views_kategori.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "07_median_views_kategori.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -339,33 +346,33 @@ plt.close()
 
 
 # ============================================================
-# 14. GRAFIK 8
-# MEDIAN LIKES PER KATEGORI
+# 13. MEDIAN LIKES PER CATEGORY
 # ============================================================
 
-median_likes = (
-    df.groupby("category_name")["likes"]
+median_likes_category = (
+    df.groupby("category_id")["likes"]
     .median()
-    .sort_values()
+    .sort_values(ascending=False)
 )
 
-plt.figure(figsize=(12, 7))
+plt.figure(figsize=(10, 6))
 
-median_likes.plot(kind="barh")
-
-plt.title(
-    "Median Likes Berdasarkan Kategori",
-    fontsize=16,
-    fontweight="bold"
+median_likes_category.plot(
+    kind="bar"
 )
 
-plt.xlabel("Median Likes")
-plt.ylabel("Kategori")
+plt.title("Median Likes per Category")
+plt.xlabel("Category ID")
+plt.ylabel("Median Likes")
+plt.xticks(rotation=45)
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "08_median_likes_kategori.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "08_median_likes_kategori.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -374,33 +381,33 @@ plt.close()
 
 
 # ============================================================
-# 15. GRAFIK 9
-# MEDIAN COMMENTS PER KATEGORI
+# 14. MEDIAN COMMENTS PER CATEGORY
 # ============================================================
 
-median_comments = (
-    df.groupby("category_name")["comments"]
+median_comments_category = (
+    df.groupby("category_id")["comments"]
     .median()
-    .sort_values()
+    .sort_values(ascending=False)
 )
 
-plt.figure(figsize=(12, 7))
+plt.figure(figsize=(10, 6))
 
-median_comments.plot(kind="barh")
-
-plt.title(
-    "Median Comments Berdasarkan Kategori",
-    fontsize=16,
-    fontweight="bold"
+median_comments_category.plot(
+    kind="bar"
 )
 
-plt.xlabel("Median Comments")
-plt.ylabel("Kategori")
+plt.title("Median Comments per Category")
+plt.xlabel("Category ID")
+plt.ylabel("Median Comments")
+plt.xticks(rotation=45)
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "09_median_comments_kategori.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "09_median_comments_kategori.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -409,31 +416,28 @@ plt.close()
 
 
 # ============================================================
-# 16. GRAFIK 10
-# SUBSCRIBER VS VIEWS
+# 15. SUBSCRIBER VS VIEWS
 # ============================================================
 
 plt.figure(figsize=(10, 6))
 
 plt.scatter(
-    np.log1p(df["subscriber_count"]),
-    np.log1p(df["views"]),
+    df["subscriber_count"],
+    df["views"],
     alpha=0.3
 )
 
-plt.title(
-    "Hubungan Subscriber dengan Views",
-    fontsize=16,
-    fontweight="bold"
-)
-
-plt.xlabel("log(Subscriber Count + 1)")
-plt.ylabel("log(Views + 1)")
+plt.title("Subscriber Count vs Views")
+plt.xlabel("Subscriber Count")
+plt.ylabel("Views")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "10_subscriber_vs_views.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "10_subscriber_vs_views.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -442,31 +446,28 @@ plt.close()
 
 
 # ============================================================
-# 17. GRAFIK 11
-# VIEWS VS LIKES
+# 16. VIEWS VS LIKES
 # ============================================================
 
 plt.figure(figsize=(10, 6))
 
 plt.scatter(
-    np.log1p(df["views"]),
-    np.log1p(df["likes"]),
+    df["views"],
+    df["likes"],
     alpha=0.3
 )
 
-plt.title(
-    "Hubungan Views dengan Likes",
-    fontsize=16,
-    fontweight="bold"
-)
-
-plt.xlabel("log(Views + 1)")
-plt.ylabel("log(Likes + 1)")
+plt.title("Views vs Likes")
+plt.xlabel("Views")
+plt.ylabel("Likes")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "11_views_vs_likes.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "11_views_vs_likes.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -475,49 +476,47 @@ plt.close()
 
 
 # ============================================================
-# 18. GRAFIK 12
-# CORRELATION MATRIX
+# 17. CORRELATION MATRIX / HEATMAP
 # ============================================================
 
-correlation = df[numeric_columns].corr()
+correlation_columns = [
+    "duration_sec",
+    "subscriber_count",
+    "publish_hour",
+    "publish_dayofweek",
+    "publish_month",
+    "high_engagement"
+]
 
-print("\n" + "=" * 70)
-print("CORRELATION MATRIX")
-print("=" * 70)
+correlation_matrix = df[
+    correlation_columns
+].corr()
 
-print(correlation.round(2))
+plt.figure(figsize=(10, 7))
 
-plt.figure(figsize=(9, 7))
-
-plt.imshow(
-    correlation,
-    aspect="auto"
-)
-
-plt.colorbar()
-
-plt.xticks(
-    range(len(numeric_columns)),
-    numeric_columns,
-    rotation=45,
-    ha="right"
-)
-
-plt.yticks(
-    range(len(numeric_columns)),
-    numeric_columns
+sns.heatmap(
+    correlation_matrix,
+    annot=True,          # MENAMPILKAN ANGKA
+    fmt=".2f",           # 2 ANGKA DI BELAKANG KOMA
+    cmap="coolwarm",
+    linewidths=0.5,
+    square=True
 )
 
 plt.title(
-    "Correlation Matrix",
-    fontsize=16,
-    fontweight="bold"
+    "Correlation Matrix - YouTube Features"
 )
+
+plt.xlabel("")
+plt.ylabel("")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "12_correlation_matrix.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "12_correlation_matrix.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -526,7 +525,7 @@ plt.close()
 
 
 # ============================================================
-# 19. TEXT ANALYSIS
+# 18. PANJANG TITLE
 # ============================================================
 
 df["title_length"] = (
@@ -536,19 +535,6 @@ df["title_length"] = (
     .str.len()
 )
 
-df["description_length"] = (
-    df["description"]
-    .fillna("")
-    .astype(str)
-    .str.len()
-)
-
-
-# ============================================================
-# 20. GRAFIK 13
-# TITLE LENGTH
-# ============================================================
-
 plt.figure(figsize=(10, 6))
 
 plt.hist(
@@ -556,19 +542,17 @@ plt.hist(
     bins=50
 )
 
-plt.title(
-    "Distribusi Panjang Judul Video",
-    fontsize=16,
-    fontweight="bold"
-)
-
+plt.title("Distribusi Panjang Judul Video")
 plt.xlabel("Panjang Judul (karakter)")
 plt.ylabel("Jumlah Video")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "13_panjang_title.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "13_panjang_title.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -577,9 +561,15 @@ plt.close()
 
 
 # ============================================================
-# 21. GRAFIK 14
-# DESCRIPTION LENGTH
+# 19. PANJANG DESCRIPTION
 # ============================================================
+
+df["description_length"] = (
+    df["description"]
+    .fillna("")
+    .astype(str)
+    .str.len()
+)
 
 plt.figure(figsize=(10, 6))
 
@@ -588,19 +578,17 @@ plt.hist(
     bins=50
 )
 
-plt.title(
-    "Distribusi Panjang Description",
-    fontsize=16,
-    fontweight="bold"
-)
-
+plt.title("Distribusi Panjang Description")
 plt.xlabel("Panjang Description (karakter)")
 plt.ylabel("Jumlah Video")
 
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "14_panjang_description.png",
+    os.path.join(
+        OUTPUT_DIR,
+        "14_panjang_description.png"
+    ),
     dpi=300,
     bbox_inches="tight"
 )
@@ -609,49 +597,41 @@ plt.close()
 
 
 # ============================================================
-# 22. DATA QUALITY
+# 20. STATISTIK DESKRIPTIF
 # ============================================================
 
-print("\n" + "=" * 70)
-print("DATA QUALITY CHECK")
-print("=" * 70)
+numeric_columns = [
+    "duration_sec",
+    "subscriber_count",
+    "views",
+    "likes",
+    "comments",
+    "publish_hour",
+    "publish_dayofweek",
+    "publish_month",
+    "high_engagement"
+]
 
-print("Views negatif    :", (df["views"] < 0).sum())
-print("Likes negatif    :", (df["likes"] < 0).sum())
-print("Comments negatif :", (df["comments"] < 0).sum())
-print("Duration negatif :", (df["duration_sec"] < 0).sum())
+classification_report = df[
+    numeric_columns
+].describe()
 
-print("Views = 0        :", (df["views"] == 0).sum())
-print("Likes = 0        :", (df["likes"] == 0).sum())
-print("Comments = 0      :", (df["comments"] == 0).sum())
+classification_report.to_csv(
+    os.path.join(
+        OUTPUT_DIR,
+        "classification_report.txt"
+    )
+)
 
+print("\n" + "=" * 60)
+print("EDA SELESAI")
+print("=" * 60)
 
-# ============================================================
-# 23. SUMMARY
-# ============================================================
+print(
+    f"Semua hasil EDA disimpan di folder: {OUTPUT_DIR}"
+)
 
-print("\n" + "=" * 70)
-print("SUMMARY EDA")
-print("=" * 70)
+print("\nFile yang dibuat:")
 
-print(f"""
-Jumlah video       : {len(df):,}
-Jumlah kolom       : {df.shape[1]}
-Jumlah kategori    : {df["category_name"].nunique()}
-Jumlah channel     : {df["channel_id"].nunique():,}
-
-Missing values     : {df.isnull().sum().sum():,}
-Duplicate rows     : {df.duplicated().sum():,}
-
-Median views       : {df["views"].median():,.0f}
-Median likes       : {df["likes"].median():,.0f}
-Median comments    : {df["comments"].median():,.0f}
-Median duration    : {df["duration_sec"].median():,.0f} detik
-""")
-
-print("=" * 70)
-print("SEMUA GRAFIK BERHASIL DISIMPAN")
-print("=" * 70)
-
-print(f"\nLokasi grafik:")
-print(OUTPUT_DIR)
+for file in sorted(os.listdir(OUTPUT_DIR)):
+    print("-", file)
