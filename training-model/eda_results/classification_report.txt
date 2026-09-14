@@ -1,0 +1,15 @@
+RANDOM FOREST MODEL EVALUATION
+==================================================
+Accuracy : 0.7332
+ROC-AUC  : 0.8131
+
+Classification Report
+==================================================
+              precision    recall  f1-score   support
+
+           0       0.71      0.79      0.75      4000
+           1       0.76      0.67      0.72      4000
+
+    accuracy                           0.73      8000
+   macro avg       0.74      0.73      0.73      8000
+weighted avg       0.74      0.73      0.73      8000

@@ -1,86 +1,200 @@
 import streamlit as st
 
+
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+
 st.set_page_config(
-    page_title="Media & Konten",
-    page_icon="📱",
+    page_title="AI Analisis Performa YouTube",
+    page_icon="📊",
     layout="wide"
 )
 
-# =========================
-# HEADER
-# =========================
 
-st.title("📱 Media & Konten")
-st.subheader("Platform AI untuk membantu mengelola dan menemukan konten digital")
+# =========================================================
+# HOME PAGE
+# =========================================================
 
-st.write(
-    "Gunakan berbagai fitur AI untuk menemukan konten yang relevan, "
-    "mengecek komentar, mendapatkan rekomendasi personal, "
-    "dan membuat subtitle secara otomatis."
+def home_page():
+
+    # =====================================================
+    # HEADER
+    # =====================================================
+
+    st.title("📊 AI Analisis & Prediksi Performa Video YouTube")
+
+    st.subheader(
+        "Prediksi potensi engagement video sebelum di-upload"
+    )
+
+    st.write(
+        """
+        Aplikasi ini menggunakan Machine Learning untuk membantu
+        content creator memperkirakan apakah video yang akan dibuat
+        berpotensi mendapatkan **High Engagement** atau **Low Engagement**.
+        """
+    )
+
+    st.divider()
+
+
+    # =====================================================
+    # INTRO
+    # =====================================================
+
+    st.header("🚀 Mulai Analisis")
+
+    st.info(
+        """
+        Pilih **Analisis Performa** pada menu di sebelah kiri,
+        kemudian masukkan karakteristik video yang ingin dianalisis.
+        """
+    )
+
+
+    # =====================================================
+    # FITUR UTAMA
+    # =====================================================
+
+    st.header("✨ Fitur Utama")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.subheader("🤖 Prediksi Performa")
+
+        st.write(
+            """
+            Model AI memprediksi apakah video termasuk
+            **High Engagement** atau **Low Engagement**
+            berdasarkan karakteristik video.
+            """
+        )
+
+
+    with col2:
+
+        st.subheader("📈 Probability & Feature Importance")
+
+        st.write(
+            """
+            Aplikasi menampilkan probabilitas hasil prediksi
+            serta fitur yang paling berpengaruh terhadap
+            keputusan model.
+            """
+        )
+
+
+    # =====================================================
+    # MODEL INFORMATION
+    # =====================================================
+
+    st.divider()
+
+    st.header("🧠 Model Machine Learning")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "Model Utama",
+            "Random Forest"
+        )
+
+    with col2:
+
+        st.metric(
+            "Accuracy",
+            "73.32%"
+        )
+
+    with col3:
+
+        st.metric(
+            "ROC-AUC",
+            "81.31%"
+        )
+
+
+    # =====================================================
+    # CARA KERJA
+    # =====================================================
+
+    st.divider()
+
+    st.header("🔍 Cara Kerja")
+
+    step1, step2, step3 = st.columns(3)
+
+    with step1:
+
+        st.subheader("1️⃣ Input")
+
+        st.write(
+            """
+            Masukkan kategori, durasi video,
+            jumlah subscriber, dan waktu publikasi.
+            """
+        )
+
+
+    with step2:
+
+        st.subheader("2️⃣ Analisis AI")
+
+        st.write(
+            """
+            Model Random Forest menganalisis karakteristik
+            video berdasarkan pola dari dataset.
+            """
+        )
+
+
+    with step3:
+
+        st.subheader("3️⃣ Hasil")
+
+        st.write(
+            """
+            Dapatkan prediksi engagement,
+            probabilitas, dan insight fitur yang berpengaruh.
+            """
+        )
+
+
+    # =====================================================
+    # FOOTER
+    # =====================================================
+
+    st.divider()
+
+    st.caption(
+        "AI Analisis & Prediksi Performa Video YouTube "
+        "— Machine Learning Project"
+    )
+
+
+# =========================================================
+# CUSTOM NAVIGATION
+# =========================================================
+
+pg = st.navigation(
+    [
+        st.Page(
+            home_page,
+            title="Home",
+            icon="🏠"
+        ),
+
+        st.Page(
+            "pages/Analisis_Performa.py",
+            title="Analisis Performa",
+            icon="📊"
+        )
+    ]
 )
 
-st.divider()
-
-# =========================
-# PETUNJUK
-# =========================
-
-st.markdown("### 🚀 Mulai dari sini")
-
-st.info(
-    "Pilih salah satu fitur pada menu di sebelah kiri untuk mulai menggunakan aplikasi."
-)
-
-# =========================
-# FITUR
-# =========================
-
-st.markdown("### ✨ Fitur yang tersedia")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("#### 🎯 Rekomendasi Konten")
-    st.write(
-        "Temukan video YouTube yang relevan berdasarkan "
-        "topik atau kata kunci yang kamu masukkan."
-    )
-
-    st.markdown("#### 🛡️ Moderasi Komentar")
-    st.write(
-        "Analisis komentar untuk mendeteksi berbagai jenis "
-        "konten yang berpotensi berbahaya."
-    )
-
-with col2:
-    st.markdown("#### 👤 Personalisasi Feed")
-    st.write(
-        "Dapatkan rekomendasi konten berdasarkan preferensi "
-        "kategori dan karakteristik video."
-    )
-
-    st.markdown("#### 🎬 AI Subtitle")
-    st.write(
-        "Buat subtitle secara otomatis dari file video atau audio "
-        "menggunakan AI."
-    )
-
-st.divider()
-
-# =========================
-# CARA MENGGUNAKAN
-# =========================
-
-st.markdown("### 📖 Cara menggunakan")
-
-st.markdown("""
-1. **Pilih fitur** yang ingin digunakan dari sidebar.
-2. **Masukkan data** sesuai petunjuk pada halaman tersebut.
-3. **Jalankan fitur AI** menggunakan tombol yang tersedia.
-4. **Lihat hasil** prediksi atau rekomendasi yang diberikan.
-""")
-
-st.success(
-    "💡 Tips: Kalau baru pertama kali menggunakan aplikasi, "
-    "kamu bisa mulai dari **🎯 Rekomendasi Konten**."
-)
+pg.run()
